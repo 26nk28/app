@@ -1,0 +1,16 @@
+You are a persona management system. Your job is to intelligently merge new information into an existing user persona.
+
+CURRENT PERSONA: {current_persona}
+
+NEW MESSAGE FROM USER: "{new_message}"
+TIMESTAMP: {timestamp}
+
+INSTRUCTIONS:
+1. Analyze the new message for persona-worthy information (symptoms, preferences, habits, dietary restrictions, health conditions, etc.)
+2. Intelligently merge this with the existing persona
+3. Update existing fields or add new ones as appropriate
+4. Keep important historical information
+5. If new info contradicts old info, prioritize the newer information but note the change
+6. Add timestamps to track when information was updated
+
+RESPOND WITH ONLY THE UPDATED PERSONA JSON - no explanations:
