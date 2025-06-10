@@ -10,7 +10,16 @@ from sqlalchemy import select
 ROOT = Path(__file__).resolve().parent
 sys.path.append(str(ROOT))
 
-from db import AsyncSessionLocal
+from utils.db import (
+    personal_engine as engine,
+    PersonalAsyncSessionLocal as AsyncSessionLocal,
+    PersonalBase as Base,
+    init_personal_db as init_db,
+    reset_personal_schema as reset_schema
+)
+
+# Re-export for existing code
+__all__ = ['engine', 'AsyncSessionLocal', 'Base', 'init_db', 'reset_schema']
 from personal_agent.models.interaction import Interaction
 from personal_agent.models.persona import Persona
 from personal_agent.models.calendar import CalendarEntry

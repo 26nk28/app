@@ -1,57 +1,91 @@
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+import sys
+from pathlib import Path
+from datetime import datetime
 from typing import List, Dict, Optional
 from sqlalchemy import select, and_
-from sqlalchemy.orm import selectinload
 
-from ..db import AsyncSessionLocal
-from ..db.models import Group, GroupMember, GroupCalendar, MealSuggestion
-from .persona_aggregator import PersonaAggregator
-from .meal_recommender import MealRecommender
+# Add parent directory to path
+parent_dir = Path(__file__).parent.parent.parent
+sys.path.append(str(parent_dir))
+
+# Import group database components
+from utils.db import GroupAsyncSessionLocal, PersonalAsyncSessionLocal
+from multi_user_platform.models import Group, GroupMember
+
+# Import personal agent models for user verification
+from personal_agent.models.user import User
 
 class GroupService:
-    """Service for managing groups and their operations"""
+    """Service for managing groups with user verification"""
     
-    def __init__(self):
-        self.persona_aggregator = PersonaAggregator()
-        self.meal_recommender = MealRecommender()
+    @staticmethod
+    async def verify_user_exists(user_id: str, user_name: str, user_email: str) -> bool:
+        """Verify if user exists in personal database"""
+        async with PersonalAsyncSessionLocal() as session:
+            result = await session.execute(
+                select(User).where(
+                    and_(
+                        User.user_id == user_id,
+                        User.name == user_name,
+                        User.email == user_email
+                    )
+                )
+            )
+            user = result.scalars().first()
+            exists = user is not None
+            
+            if exists:
+                print(f"✅ User {user_name} ({user_id[:8]}...) verified in personal database")
+            else:
+                print(f"❌ User {user_name} ({user_id[:8]}...) NOT found in personal database")
+            
+            return exists
     
-    async def create_group(self, group_name: str, creator_user_id: str, creator_agent_id: str) -> str:
-        """Create a new group and add creator as admin"""
-        async with AsyncSessionLocal() as session:
-            # Create group
+    @staticmethod
+    async def create_group(name: str) -> Dict:
+        """Create a new group"""
+        async with GroupAsyncSessionLocal() as session:
             group = Group(
                 id=str(uuid.uuid4()),
-                name=group_name,
-                created_at=datetime.now()
+                name=name,
+                created_at=datetime.now(),
+                max_users=3,
+                is_active=True
             )
             session.add(group)
-            
-            # Add creator as admin
-            member = GroupMember(
-                group_id=group.id,
-                user_id=creator_user_id,
-                agent_id=creator_agent_id,
-                role='admin'
-            )
-            session.add(member)
-            
             await session.commit()
             
-            print(f"✅ Group '{group_name}' created with ID: {group.id[:8]}...")
-            return group.id
+            print(f"✅ Group '{name}' created with ID: {group.id[:8]}...")
+            
+            return {
+                'group_id': group.id,
+                'group_name': name,
+                'created_at': group.created_at.isoformat()
+            }
     
-    async def add_member_to_group(self, group_id: str, user_id: str, agent_id: str) -> bool:
-        """Add a member to an existing group"""
-        async with AsyncSessionLocal() as session:
+    @staticmethod
+    async def add_user_to_group(group_id: str, user_id: str, user_name: str, user_email: str) -> bool:
+        """Add a user to an existing group (with verification)"""
+        
+        # FIRST: Verify user exists in personal database
+        if not await GroupService.verify_user_exists(user_id, user_name, user_email):
+            print(f"❌ Cannot add {user_name} to group: User not found in personal database")
+            return False
+        
+        async with GroupAsyncSessionLocal() as session:
             # Check if group exists and has space
-            group = await session.get(Group, group_id)
-            if not group or not group.is_active:
-                print(f"❌ Group {group_id[:8]} not found or inactive")
+            group = await session.execute(
+                select(Group).where(Group.id == group_id, Group.is_active == True)
+            )
+            group = group.scalars().first()
+            
+            if not group:
+                print(f"❌ Group {group_id[:8]}... not found")
                 return False
             
-            # Count current members
+            # Check current member count
             member_count = await session.execute(
                 select(GroupMember).where(
                     and_(GroupMember.group_id == group_id, GroupMember.is_active == True)
@@ -59,8 +93,8 @@ class GroupService:
             )
             current_members = len(member_count.scalars().all())
             
-            if current_members >= group.max_members:
-                print(f"❌ Group {group_id[:8]} is full ({current_members}/{group.max_members})")
+            if current_members >= group.max_users:
+                print(f"❌ Group is full ({current_members}/{group.max_users})")
                 return False
             
             # Check if user already in group
@@ -74,79 +108,62 @@ class GroupService:
                 )
             )
             if existing_member.scalars().first():
-                print(f"❌ User {user_id[:8]} already in group {group_id[:8]}")
+                print(f"❌ User {user_name} already in group")
                 return False
             
-            # Add member
-            member = GroupMember(
+            # Add user to group
+            group_member = GroupMember(
+                id=str(uuid.uuid4()),
                 group_id=group_id,
                 user_id=user_id,
-                agent_id=agent_id,
+                user_name=user_name,
+                user_email=user_email,
+                joined_at=datetime.now(),
+                is_active=True,
                 role='member'
             )
-            session.add(member)
+            session.add(group_member)
             await session.commit()
             
-            print(f"✅ User {user_id[:8]} added to group {group_id[:8]}")
+            print(f"✅ User {user_name} added to group successfully")
             return True
     
-    async def get_group_members(self, group_id: str) -> List[Dict]:
-        """Get all active members of a group"""
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
+    @staticmethod
+    async def get_group_members(group_id: str) -> List[Dict]:
+        """Get all members of a group"""
+        async with GroupAsyncSessionLocal() as session:
+            members = await session.execute(
                 select(GroupMember).where(
                     and_(GroupMember.group_id == group_id, GroupMember.is_active == True)
                 )
             )
-            members = result.scalars().all()
             
-            return [{
-                'user_id': member.user_id,
-                'agent_id': member.agent_id,
-                'role': member.role,
-                'joined_at': member.joined_at
-            } for member in members]
-    
-    async def generate_group_meal_suggestions(self, group_id: str) -> List[Dict]:
-        """Generate meal suggestions for the group based on all members' preferences"""
-        print(f"🍽️ Generating meal suggestions for group {group_id[:8]}...")
-        
-        # Get group members
-        members = await self.get_group_members(group_id)
-        if not members:
-            print(f"❌ No members found for group {group_id[:8]}")
-            return []
-        
-        # Aggregate all member personas and preferences
-        aggregated_data = await self.persona_aggregator.aggregate_group_data(
-            [member['user_id'] for member in members],
-            [member['agent_id'] for member in members]
-        )
-        
-        # Generate meal recommendations
-        meal_suggestions = await self.meal_recommender.recommend_meals(
-            aggregated_data, group_id
-        )
-        
-        # Store suggestions in database
-        await self._store_meal_suggestions(group_id, meal_suggestions)
-        
-        print(f"✅ Generated {len(meal_suggestions)} meal suggestions for group")
-        return meal_suggestions
-    
-    async def _store_meal_suggestions(self, group_id: str, suggestions: List[Dict]):
-        """Store meal suggestions in database"""
-        async with AsyncSessionLocal() as session:
-            for suggestion in suggestions:
-                meal_suggestion = MealSuggestion(
-                    group_id=group_id,
-                    meal_name=suggestion['name'],
-                    ingredients=suggestion['ingredients'],
-                    dietary_compatibility=suggestion['compatible_members'],
-                    nutrition_info=suggestion.get('nutrition', {}),
-                    preparation_time=suggestion.get('prep_time', 30),
-                    difficulty_level=suggestion.get('difficulty', 'medium')
-                )
-                session.add(meal_suggestion)
+            member_list = []
+            for member in members.scalars().all():
+                member_list.append({
+                    'user_id': member.user_id,
+                    'user_name': member.user_name,
+                    'user_email': member.user_email,
+                    'role': member.role,
+                    'joined_at': member.joined_at.isoformat()
+                })
             
-            await session.commit()
+            return member_list
+    
+    @staticmethod
+    async def get_all_users_from_personal_db() -> List[Dict]:
+        """Get all users from personal database for reference"""
+        async with PersonalAsyncSessionLocal() as session:
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            
+            user_list = []
+            for user in users:
+                user_list.append({
+                    'user_id': user.user_id,
+                    'name': user.name,
+                    'email': user.email,
+                    'phone': user.phone
+                })
+            
+            return user_list

@@ -3,10 +3,20 @@ from pathlib import Path
 from typing import TypedDict
 
 from sqlalchemy import select
-from personal_agent.db import AsyncSessionLocal
+from utils.db import (
+    personal_engine as engine,
+    PersonalAsyncSessionLocal as AsyncSessionLocal,
+    PersonalBase as Base,
+    init_personal_db as init_db,
+    reset_personal_schema as reset_schema
+)
+
+# Re-export for existing code
+__all__ = ['engine', 'AsyncSessionLocal', 'Base', 'init_db', 'reset_schema']
 from personal_agent.models.user import User
+from personal_agent.models.persona import Persona
 from personal_agent.models.interaction import Interaction
-from personal_agent.id_generator import generate_uuid4
+from utils.id_generator import generate_uuid4
 from utils.config import GEMINI_API_KEY
 
 from langgraph.graph import StateGraph, START
@@ -22,7 +32,7 @@ from langchain.prompts.chat import (
 
 # ─── User lookup/creation helper ────────────────────────────────────────────
 
-async def get_or_create_user(name: str, email: str, phone: str = None):
+async def get_or_create_user(name: str, email: str, phone: str = None, health_form: str = None):
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalars().first()
@@ -32,8 +42,15 @@ async def get_or_create_user(name: str, email: str, phone: str = None):
         session.add(User(
             user_id=uid, agent_id=aid,
             name=name, email=email, phone=phone,
-            health_form=None
+            health_form=health_form 
         ))
+
+        new_persona = Persona(
+            user_id=uid,
+            agent_id=aid,
+            data=health_form
+        )
+        session.add(new_persona)
         await session.commit()
         return uid, aid
 
@@ -46,7 +63,7 @@ class HealthState(TypedDict):
 
 # ─── Load system prompt ──────────────────────────────────────────────────────
 
-PROMPT_FILE = Path(__file__).parent / "prompts" / "frontend" / "health_agent.txt"
+PROMPT_FILE = Path(__file__).parent.parent / "prompts" / "frontend" / "health_agent.txt"
 SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
     PROMPT_FILE.read_text(encoding="utf-8").strip()
 )

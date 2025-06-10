@@ -1,222 +1,188 @@
 import asyncio
 import json
-from typing import List, Dict
-from langchain_google_genai import ChatGoogleGenerativeAI
-from ..utils.config import GEMINI_API_KEY
+import sys
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, List
 
-class MealRecommender:
-    """AI-powered meal recommendation engine for groups"""
+# Add parent directory to path
+parent_dir = Path(__file__).parent.parent.parent
+sys.path.append(str(parent_dir))
+
+from utils.db import PersonalAsyncSessionLocal
+from personal_agent.models.persona import Persona
+from personal_agent.models.calendar import CalendarEntry
+from multi_user_platform.services.group_service import GroupService
+from sqlalchemy import select
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from utils.config import GEMINI_API_KEY
+
+class MealRecommendationService:
+    """Service for generating meal recommendations using real user data"""
     
     def __init__(self):
         self.llm = ChatGoogleGenerativeAI(
             api_key=GEMINI_API_KEY,
             model="gemini-2.5-flash-preview-05-20",
-            temperature=0.3
+            temperature=0.3,
         )
+        self.prompt_file = Path(__file__).parent.parent.parent /  "prompts" / "multi_agent"  / "meal_recommendation.txt"
     
-    async def recommend_meals(self, aggregated_data: Dict, group_id: str) -> List[Dict]:
-        """Generate 4 meal recommendations for the group"""
-        print(f"🤖 Generating AI meal recommendations for group {group_id[:8]}...")
-        
-        # Create recommendation prompt
-        prompt = self._create_recommendation_prompt(aggregated_data)
-        
-        try:
-            response = await self.llm.ainvoke(prompt)
-            meal_suggestions = self._parse_meal_response(response.content)
+    async def _fetch_user_persona_string(self, user_id: str) -> str:
+        """Fetch persona as string for a user"""
+        async with PersonalAsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Persona).where(Persona.user_id == user_id)
+            )
+            persona = result.scalars().first()
             
-            # Enhance suggestions with compatibility info
-            enhanced_suggestions = []
-            for suggestion in meal_suggestions:
-                enhanced = await self._enhance_suggestion_with_compatibility(
-                    suggestion, aggregated_data
-                )
-                enhanced_suggestions.append(enhanced)
-            
-            return enhanced_suggestions[:4]  # Return top 4
-            
-        except Exception as e:
-            print(f"❌ Error generating meal recommendations: {e}")
-            return self._get_fallback_recommendations()
+            if persona and persona.data:
+                # Convert persona data to string
+                if isinstance(persona.data, dict):
+                    return str(persona.data)
+                else:
+                    return str(persona.data)
+            return "No persona data available"
     
-    def _create_recommendation_prompt(self, data: Dict) -> str:
-        """Create AI prompt for meal recommendations"""
+    async def _fetch_user_calendar_string(self, user_id: str, days_back: int = 30) -> str:
+        """Fetch calendar entries as string for last N days"""
+        async with PersonalAsyncSessionLocal() as session:
+            cutoff_date = datetime.now() - timedelta(days=days_back)
+            
+            result = await session.execute(
+                select(CalendarEntry).where(
+                    CalendarEntry.user_id == user_id,
+                    CalendarEntry.date >= cutoff_date.date()
+                ).order_by(CalendarEntry.date.desc(), CalendarEntry.window.desc())
+            )
+            
+            entries = result.scalars().all()
+            
+            if not entries:
+                return "No recent meal history"
+            
+            # Convert calendar entries to readable string
+            calendar_strings = []
+            for entry in entries:
+                calendar_strings.append(f"{entry.date} (window {entry.window}): {entry.info}")
+            
+            return "; ".join(calendar_strings)
+    
+    async def _load_group_data_fresh(self, group_id: str) -> List[Dict]:
+        """Load fresh data for all group members (no caching)"""
+        print(f"🔄 Loading fresh data for group {group_id[:8]}...")
         
-        # Extract key information
-        combined_prefs = data['combined_preferences']
-        restrictions = data['dietary_restrictions']
-        calendar_patterns = data['group_calendar_patterns']
+        # Get group members
+        members = await GroupService.get_group_members(group_id)
         
-        prompt = f"""
-You are a professional nutritionist and meal planner. Create 4 diverse meal recommendations for a group of {len(data['group_personas'])} people.
+        if not members:
+            raise ValueError(f"No members found in group {group_id[:8]}")
+        
+        # Load data for each member
+        group_data = []
+        
+        for member in members:
+            user_id = member['user_id']
+            user_name = member['user_name']
+            
+            print(f"   📊 Loading data for {user_name} ({user_id[:8]}...)...")
+            
+            # Fetch persona and calendar as strings
+            persona_string = await self._fetch_user_persona_string(user_id)
+            calendar_string = await self._fetch_user_calendar_string(user_id, days_back=30)
+            
+            user_data = {
+                'user_id': user_id,
+                'name': user_name,
+                'email': member['user_email'],
+                'persona': persona_string,
+                'calendar': calendar_string
+            }
+            
+            group_data.append(user_data)
+            print(f"   ✅ Loaded {user_name}: persona={len(persona_string)} chars, calendar={len(calendar_string)} chars")
+        
+        print(f"✅ Fresh data loaded for {len(group_data)} members")
+        return group_data
+    
+    def _load_prompt_template(self) -> str:
+        """Load prompt template from file"""
+        
+        return self.prompt_file.read_text(encoding="utf-8")
+        
+    def _create_prompt(self, group_data: List[Dict]) -> str:
+        """Create the complete prompt for Gemini"""
+        template = self._load_prompt_template()
+        
+        # Build user data section
+        user_data_section = ""
+        for user in group_data:
+            user_data_section += f"""
+USER: {user['name']}
+PERSONA: {user['persona']}
+CALENDAR (last 30 days): {user['calendar']}
 
-GROUP PREFERENCES:
-- Likes: {combined_prefs.get('likes', [])}
-- Dislikes: {combined_prefs.get('dislikes', [])}
-- Allergies: {combined_prefs.get('allergies', [])}
-- Dietary Restrictions: {combined_prefs.get('dietary_restrictions', [])}
-
-DIETARY RESTRICTIONS BY MEMBER:
-{json.dumps(restrictions, indent=2)}
-
-EATING PATTERNS:
-{json.dumps(calendar_patterns, indent=2)}
-
-REQUIREMENTS:
-1. Each meal must be safe for ALL group members (respect all allergies and restrictions)
-2. Include variety in cuisine types and cooking methods
-3. Consider different difficulty levels (easy to moderate)
-4. Provide balanced nutrition
-5. Include preparation time estimates
-
-RESPOND WITH EXACTLY 4 MEAL SUGGESTIONS IN THIS JSON FORMAT:
-[
-  {{
-    "name": "Meal Name",
-    "description": "Brief description",
-    "ingredients": ["ingredient1", "ingredient2", "..."],
-    "cuisine_type": "Italian/Asian/etc",
-    "prep_time": 30,
-    "difficulty": "easy/medium/hard",
-    "dietary_tags": ["vegetarian", "gluten-free", "etc"],
-    "nutrition_highlights": ["high protein", "low carb", "etc"],
-    "cooking_method": "baking/stir-fry/etc"
-  }}
-]
-
-RESPOND ONLY WITH THE JSON ARRAY:
 """
+        
+        # Fill in the template
+        prompt = template.format(user_data=user_data_section.strip())
         return prompt
     
-    def _parse_meal_response(self, response_content: str) -> List[Dict]:
-        """Parse AI response into meal suggestions"""
+    async def generate_recommendations(self, group_id: str) -> Dict:
+        """Generate meal recommendations for a group using fresh data"""
+        print(f"🍽️ Generating meal recommendations for group {group_id[:8]}...")
+        
         try:
-            # Clean response content
-            content = response_content.strip()
+            # Load fresh data (no caching)
+            group_data = await self._load_group_data_fresh(group_id)
             
-            # Remove markdown formatting if present
-            if content.startswith("```"):
-                content = content[7:]
-            if content.startswith('```'):
-                content = content[3:]
-            if content.endswith('```'):
-                content = content[:-3]
+            # Create prompt
+            prompt = self._create_prompt(group_data)
             
-            content = content.strip()
+            print(f"🤖 Sending request to Gemini...")
+            print(f"   Prompt length: {len(prompt)} characters")
             
-            # Parse JSON
-            meals = json.loads(content)
+            # Get recommendations from Gemini
+            response = await self.llm.ainvoke(prompt)
+            response_text = response.content.strip()
             
-            if isinstance(meals, list) and len(meals) > 0:
-                return meals
-            else:
-                print("⚠️ Invalid meal response format")
-                return self._get_fallback_recommendations()
-                
-        except json.JSONDecodeError as e:
-            print(f"⚠️ Failed to parse meal recommendations: {e}")
-            print(f"Raw response: {response_content[:200]}...")
-            return self._get_fallback_recommendations()
-    
-    async def _enhance_suggestion_with_compatibility(self, suggestion: Dict, data: Dict) -> Dict:
-        """Enhance meal suggestion with group compatibility information"""
-        
-        # Check which members can eat this meal
-        compatible_members = []
-        incompatible_reasons = {}
-        
-        for member_data in data['group_personas']:
-            user_id = member_data['user_id']
-            persona = member_data['persona']
+            print(f"✅ Received response from Gemini")
             
-            is_compatible, reasons = self._check_meal_compatibility(suggestion, persona)
+            # Parse JSON response
+            if response_text.startswith('```'):
+                # Remove markdown formatting
+                lines = response_text.split('\n')
+                json_start = 1
+                json_end = len(lines)
+                for i, line in enumerate(lines[1:], 1):
+                    if line.strip() == '```':
+                        json_end = i
+                        break
+                response_text = '\n'.join(lines[json_start:json_end]).strip()
             
-            if is_compatible:
-                compatible_members.append(user_id)
-            else:
-                incompatible_reasons[user_id] = reasons
-        
-        # Add compatibility information
-        suggestion['compatible_members'] = compatible_members
-        suggestion['incompatible_reasons'] = incompatible_reasons
-        suggestion['compatibility_score'] = len(compatible_members) / len(data['group_personas'])
-        
-        return suggestion
-    
-    def _check_meal_compatibility(self, meal: Dict, persona: Dict) -> tuple:
-        """Check if a meal is compatible with a member's restrictions"""
-        incompatible_reasons = []
-        
-        meal_ingredients = [ing.lower() for ing in meal.get('ingredients', [])]
-        meal_tags = [tag.lower() for tag in meal.get('dietary_tags', [])]
-        
-        # Check allergies
-        allergies = [allergy.lower() for allergy in persona.get('allergies', [])]
-        for allergy in allergies:
-            if any(allergy in ingredient for ingredient in meal_ingredients):
-                incompatible_reasons.append(f"Contains allergen: {allergy}")
-        
-        # Check dietary restrictions
-        restrictions = [rest.lower() for rest in persona.get('dietary_restrictions', [])]
-        for restriction in restrictions:
-            if restriction == 'vegetarian' and any(meat in ' '.join(meal_ingredients) for meat in ['chicken', 'beef', 'pork', 'fish']):
-                incompatible_reasons.append("Contains meat (vegetarian restriction)")
-            elif restriction == 'vegan' and any(animal in ' '.join(meal_ingredients) for animal in ['milk', 'cheese', 'egg', 'butter', 'chicken', 'beef']):
-                incompatible_reasons.append("Contains animal products (vegan restriction)")
-        
-        # Check dislikes (less strict)
-        dislikes = persona.get('preferences', {}).get('dislikes', [])
-        for dislike in dislikes:
-            if dislike.lower() in ' '.join(meal_ingredients):
-                incompatible_reasons.append(f"Contains disliked ingredient: {dislike}")
-        
-        return len(incompatible_reasons) == 0, incompatible_reasons
-    
-    def _get_fallback_recommendations(self) -> List[Dict]:
-        """Provide fallback meal recommendations if AI fails"""
-        return [
-            {
-                "name": "Mediterranean Quinoa Bowl",
-                "description": "Healthy quinoa with vegetables and olive oil dressing",
-                "ingredients": ["quinoa", "cucumber", "tomatoes", "olive oil", "lemon", "herbs"],
-                "cuisine_type": "Mediterranean",
-                "prep_time": 25,
-                "difficulty": "easy",
-                "dietary_tags": ["vegetarian", "gluten-free", "healthy"],
-                "nutrition_highlights": ["high protein", "fiber rich"],
-                "cooking_method": "boiling and mixing"
-            },
-            {
-                "name": "Vegetable Stir Fry",
-                "description": "Quick and healthy mixed vegetable stir fry",
-                "ingredients": ["mixed vegetables", "soy sauce", "garlic", "ginger", "oil"],
-                "cuisine_type": "Asian",
-                "prep_time": 15,
-                "difficulty": "easy",
-                "dietary_tags": ["vegetarian", "quick"],
-                "nutrition_highlights": ["vitamin rich", "low calorie"],
-                "cooking_method": "stir-frying"
-            },
-            {
-                "name": "Pasta Primavera",
-                "description": "Light pasta with seasonal vegetables",
-                "ingredients": ["pasta", "zucchini", "bell peppers", "olive oil", "herbs"],
-                "cuisine_type": "Italian",
-                "prep_time": 20,
-                "difficulty": "easy",
-                "dietary_tags": ["vegetarian"],
-                "nutrition_highlights": ["carbohydrates", "vegetables"],
-                "cooking_method": "boiling and sautéing"
-            },
-            {
-                "name": "Green Salad with Protein",
-                "description": "Fresh salad with choice of protein",
-                "ingredients": ["mixed greens", "tomatoes", "cucumber", "dressing"],
-                "cuisine_type": "International",
-                "prep_time": 10,
-                "difficulty": "easy",
-                "dietary_tags": ["healthy", "fresh"],
-                "nutrition_highlights": ["vitamins", "low calorie"],
-                "cooking_method": "no cooking required"
+            recommendations = json.loads(response_text)
+            
+            print(f"✅ Generated {len(recommendations.get('meal_options', []))} meal recommendations")
+            
+            # Add metadata
+            result = {
+                "group_id": group_id,
+                "generated_at": datetime.now().isoformat(),
+                "based_on_users": [user['name'] for user in group_data],
+                "recommendations": recommendations
             }
-        ]
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error generating recommendations: {e}")
+            # Return fallback recommendations
+            return {
+                "group_id": group_id,
+                "generated_at": datetime.now().isoformat(),
+                "error": str(e),
+                "recommendations": {
+                    
+                }
+            }

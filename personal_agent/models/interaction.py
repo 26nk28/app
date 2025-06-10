@@ -1,7 +1,16 @@
 # src/models/interaction.py
 from sqlalchemy import Column, String, JSON, DateTime
 from sqlalchemy.sql import func
-from personal_agent.db import Base
+from utils.db import (
+    personal_engine as engine,
+    PersonalAsyncSessionLocal as AsyncSessionLocal,
+    PersonalBase as Base,
+    init_personal_db as init_db,
+    reset_personal_schema as reset_schema
+)
+
+# Re-export for existing code
+__all__ = ['engine', 'AsyncSessionLocal', 'Base', 'init_db', 'reset_schema']
 from sqlalchemy import Boolean
 
 class Interaction(Base):

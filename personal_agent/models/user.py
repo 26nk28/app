@@ -1,7 +1,16 @@
 # src/models/user.py
 from sqlalchemy import Column, String, JSON
 from sqlalchemy.dialects.sqlite import TEXT
-from personal_agent.db import Base
+from utils.db import (
+    personal_engine as engine,
+    PersonalAsyncSessionLocal as AsyncSessionLocal,
+    PersonalBase as Base,
+    init_personal_db as init_db,
+    reset_personal_schema as reset_schema
+)
+
+# Re-export for existing code
+__all__ = ['engine', 'AsyncSessionLocal', 'Base', 'init_db', 'reset_schema']
 
 class User(Base):
     __tablename__ = "users"
@@ -11,4 +20,4 @@ class User(Base):
     name      = Column(String, nullable=False)
     email     = Column(String, unique=True, nullable=False)
     phone     = Column(String, nullable=True)
-    health_form = Column(JSON, nullable=True)  # Store initial form JSON
+    health_form = Column(String, nullable=True)  # Store initial form JSON

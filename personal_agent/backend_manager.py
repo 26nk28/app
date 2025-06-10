@@ -11,7 +11,7 @@ class BackendPromptManager:
         if prompts_dir is None:
             current_file = Path(__file__).resolve()
             # From root directory, go into prompts/backend/
-            self.prompts_dir = current_file.parent / "prompts" / "backend"
+            self.prompts_dir = current_file.parent.parent / "prompts" / "backend"
         else:
             self.prompts_dir = prompts_dir
             
