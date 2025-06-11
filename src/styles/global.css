@@ -1,0 +1,55 @@
+/* Basic Reset */
+body, h1, h2, h3, p, ul, li, button, input {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: sans-serif; /* Basic font */
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+/* Theme Variables */
+:root {
+  --primary-color: #4CAF50; /* Example: Green for health/food */
+  --secondary-color: #FFC107; /* Example: Amber for accent */
+  --background-color: #f4f4f8; /* Light grey background */
+  --surface-color: #ffffff; /* For cards, modals etc. */
+  --text-color: #333333;
+  --text-color-light: #ffffff;
+  --error-color: #D32F2F;
+  --success-color: #388E3C;
+
+  --font-family-primary: 'Arial', sans-serif; /* Placeholder */
+  --font-size-small: 0.875rem;
+  --font-size-medium: 1rem;
+  --font-size-large: 1.25rem;
+  --font-size-xlarge: 1.75rem;
+
+  --spacing-small: 8px;
+  --spacing-medium: 16px;
+  --spacing-large: 24px;
+
+  --border-radius: 4px;
+}
+
+.App {
+  padding: var(--spacing-medium);
+}
+
+/* Basic Button Style (example) */
+.button-primary {
+  background-color: var(--primary-color);
+  color: var(--text-color-light);
+  border: none;
+  padding: var(--spacing-small) var(--spacing-medium);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: var(--font-size-medium);
+}
+
+.button-primary:hover {
+  opacity: 0.9;
+}
