@@ -41,7 +41,7 @@ async def main():
     # 2) Create or fetch your "Test User"
     user_id, agent_id = await get_or_create_user(
         name="Test User",
-        email="test@example.com",
+        email="2Lz5m@example.com",
         phone="+0000000000",
         health_form= 'likes: fruits, dislikes : dairy'
     )

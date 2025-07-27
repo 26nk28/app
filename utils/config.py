@@ -30,10 +30,6 @@ GROUP_ONBOARDING_DATABASE_URL = f"sqlite+aiosqlite:///{GROUP_ONBOARDING_DB_PATH}
 GEMINI_API_KEY = "AIzaSyA4yA9kIJum-1Uz0Hv8POst1dIok07Fln8"
 
 # ── Service URLs for microservices communication
-PERSONAL_AGENT_URL = "http://localhost:8002"
-GROUP_AGENT_URL = "http://localhost:8004"
-USER_ONBOARDING_URL = "http://localhost:8001"
-GROUP_ONBOARDING_URL = "http://localhost:8003"
 
 # ── API Keys for inter-service communication
 INTER_SERVICE_API_KEY = "your-secret-api-key-here"  # Change in production
