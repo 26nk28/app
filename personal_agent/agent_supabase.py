@@ -1,10 +1,10 @@
 import asyncio
 from pathlib import Path
 from typing import TypedDict
-
+import os
 from supabase_db.supabase_client import get_supabase_client
 from utils.id_generator import generate_uuid4
-from utils.config import GEMINI_API_KEY
+# from utils.config import GEMINI_API_KEY
 
 from langgraph.graph import StateGraph, START
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -17,6 +17,8 @@ from langchain.prompts.chat import (
     ChatPromptTemplate,
 )
 
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # ─── User lookup/creation helper (converted to Supabase) ───────────────────
 
 async def get_or_create_user(name: str, email: str, phone: str = None, health_form: str = None):

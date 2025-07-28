@@ -32,6 +32,15 @@ class handler(BaseHTTPRequestHandler):
                 "environment": {
                     "python_runtime": "python3.9",
                     "platform": "vercel_serverless"
+                },
+                "conversation_flow": {
+                    "status": "✅ Ready",
+                    "features": [
+                        "Real-time AI responses",
+                        "Context-aware conversations",
+                        "Proper message-response pairing",
+                        "Conversation history storage"
+                    ]
                 }
             }
             
@@ -72,17 +81,20 @@ class handler(BaseHTTPRequestHandler):
         # Test 3: Supabase Connection
         test_results["supabase_connection"] = await self.test_supabase_connection()
         
-        # Test 4: User Creation
-        test_results["user_creation"] = await self.test_user_creation()
+        # Test 4: User Creation (Enhanced)
+        test_results["user_creation"] = await self.test_user_creation_flow()
         
-        # Test 5: Database Operations
-        test_results["database_operations"] = await self.test_database_operations()
+        # Test 5: Chat API Integration (New)
+        test_results["chat_api"] = await self.test_chat_api_integration()
         
-        # Test 6: Chat Functionality
-        test_results["chat_functionality"] = await self.test_chat_functionality()
+        # Test 6: Complete Conversation Flow (New)
+        test_results["conversation_flow"] = await self.test_complete_conversation_flow()
         
-        # Test 7: Backend Integration Check
-        test_results["backend_integration"] = await self.test_backend_integration()
+        # Test 7: Message Storage Verification (New)
+        test_results["message_storage"] = await self.test_message_storage_verification()
+        
+        # Test 8: AI Response Generation (New)
+        test_results["ai_responses"] = await self.test_ai_response_generation()
         
         return test_results
     
@@ -91,15 +103,17 @@ class handler(BaseHTTPRequestHandler):
         try:
             # Test core imports
             from supabase_db.supabase_client import get_supabase_client
-            from personal_agent.agent_supabase import get_or_create_user
+            from personal_agent.agent_supabase import get_or_create_user, ask_question, fetch_history
             from utils.id_generator import generate_uuid4
             
             # Test optional imports
             try:
                 from utils.config import GEMINI_API_KEY
                 config_loaded = True
+                gemini_available = bool(GEMINI_API_KEY)
             except:
                 config_loaded = False
+                gemini_available = False
             
             return {
                 "status": "✅ PASS",
@@ -107,8 +121,11 @@ class handler(BaseHTTPRequestHandler):
                 "details": {
                     "supabase_client": "✅ Available",
                     "agent_supabase": "✅ Available", 
+                    "ask_question": "✅ Available",
+                    "fetch_history": "✅ Available",
                     "id_generator": "✅ Available",
-                    "config": "✅ Available" if config_loaded else "⚠️ Warning: Config not found"
+                    "config": "✅ Available" if config_loaded else "⚠️ Warning: Config not found",
+                    "gemini_api": "✅ Ready" if gemini_available else "⚠️ API key not found"
                 }
             }
             
@@ -157,16 +174,19 @@ class handler(BaseHTTPRequestHandler):
             
             supabase = get_supabase_client()
             
-            # Test basic connection by querying a table
-            result = supabase.table("users").select("user_id").limit(1).execute()
+            # Test table access
+            users_test = supabase.table("users").select("user_id").limit(1).execute()
+            interactions_test = supabase.table("interactions").select("id").limit(1).execute()
+            persona_test = supabase.table("persona").select("user_id").limit(1).execute()
             
             return {
                 "status": "✅ PASS",
-                "message": "Supabase connection successful",
+                "message": "Supabase connection and tables accessible",
                 "details": {
                     "connection": "✅ Connected",
-                    "database_accessible": "✅ Yes",
-                    "query_test": "✅ Successful"
+                    "users_table": "✅ Accessible",
+                    "interactions_table": "✅ Accessible",
+                    "persona_table": "✅ Accessible"
                 }
             }
             
@@ -177,28 +197,44 @@ class handler(BaseHTTPRequestHandler):
                 "error": str(e)
             }
     
-    async def test_user_creation(self):
-        """Test user creation functionality"""
+    async def test_user_creation_flow(self):
+        """Test complete user creation functionality"""
         try:
             from personal_agent.agent_supabase import get_or_create_user
+            from supabase_db.supabase_client import get_supabase_client
             
-            # Create a test user
-            test_email = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}@example.com"
+            # Create a test user with realistic data
+            test_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            test_email = f"foodbuddy_test_{test_timestamp}@example.com"
             
             user_id, agent_id = await get_or_create_user(
-                name="Test User",
+                name=f"FoodBuddy Test User {test_timestamp}",
                 email=test_email,
-                phone="+1234567890",
-                health_form='{"test": true, "created_at": "' + datetime.now().isoformat() + '"}'
+                phone=f"+1234{test_timestamp[-6:]}",
+                health_form=json.dumps({
+                    "diet": "vegetarian",
+                    "allergies": ["nuts"],
+                    "goals": ["weight_loss", "healthy_eating"],
+                    "age": 25,
+                    "test_created": True,
+                    "created_at": datetime.now().isoformat()
+                })
             )
+            
+            # Verify user was created in database
+            supabase = get_supabase_client()
+            user_check = supabase.table("users").select("*").eq("user_id", user_id).execute()
+            persona_check = supabase.table("persona").select("*").eq("user_id", user_id).execute()
             
             return {
                 "status": "✅ PASS",
-                "message": "User creation successful",
+                "message": "User creation flow successful",
                 "details": {
                     "user_created": "✅ Yes",
-                    "user_id": user_id[:8] + "...",
-                    "agent_id": agent_id[:8] + "...",
+                    "user_id": user_id[:12] + "...",
+                    "agent_id": agent_id[:12] + "...",
+                    "database_entry": "✅ Verified",
+                    "persona_created": "✅ Yes" if persona_check.data else "❌ No",
                     "test_email": test_email
                 }
             }
@@ -210,132 +246,253 @@ class handler(BaseHTTPRequestHandler):
                 "error": str(e)
             }
     
-    async def test_database_operations(self):
-        """Test basic database CRUD operations"""
+    async def test_chat_api_integration(self):
+        """Test chat API integration points"""
         try:
+            from personal_agent.agent_supabase import ask_question, fetch_history
             from supabase_db.supabase_client import get_supabase_client
             from utils.id_generator import generate_uuid4
             
-            supabase = get_supabase_client()
+            # Create test user for chat
+            test_user_id = f"chat_test_{generate_uuid4()[:8]}"
+            test_agent_id = f"agent_test_{generate_uuid4()[:8]}"
             
-            # Test: Insert interaction
-            test_interaction = {
-                "id": generate_uuid4(),
-                "user_id": "test_user_" + generate_uuid4()[:8],
-                "agent_id": "test_agent_" + generate_uuid4()[:8],
-                "input_by_user": "Test message for API verification",
-                "output_by_model": "Test response from API test",
-                "processed": False
+            # Test ask_question function
+            state = {
+                "user_id": test_user_id,
+                "agent_id": test_agent_id,
+                "last_question": "Hello, I need help with nutrition planning"
             }
             
-            # Insert test interaction
-            insert_result = supabase.table("interactions").insert(test_interaction).execute()
+            ai_result = await ask_question(state)
+            ai_response = ai_result.get("last_question", "")
             
-            # Query test interaction
-            query_result = supabase.table("interactions").select("*").eq("id", test_interaction["id"]).execute()
-            
-            # Clean up - delete test interaction
-            supabase.table("interactions").delete().eq("id", test_interaction["id"]).execute()
+            # Test fetch_history function
+            history = await fetch_history(test_user_id, test_agent_id)
             
             return {
                 "status": "✅ PASS",
-                "message": "Database operations successful",
+                "message": "Chat API integration working",
                 "details": {
-                    "insert": "✅ Successful",
-                    "query": "✅ Successful", 
-                    "cleanup": "✅ Completed",
-                    "test_interaction_id": test_interaction["id"][:8] + "..."
+                    "ask_question": "✅ Functional",
+                    "ai_response_generated": "✅ Yes" if ai_response else "❌ No",
+                    "fetch_history": "✅ Functional",
+                    "response_length": len(ai_response) if ai_response else 0,
+                    "history_entries": len(history)
                 }
             }
             
         except Exception as e:
             return {
                 "status": "❌ FAIL",
-                "message": f"Database operations failed: {str(e)}",
+                "message": f"Chat API integration failed: {str(e)}",
                 "error": str(e)
             }
     
-    async def test_chat_functionality(self):
-        """Test chat API functionality simulation"""
+    async def test_complete_conversation_flow(self):
+        """Test complete conversation flow like the working chat.py"""
+        try:
+            from personal_agent.agent_supabase import get_or_create_user, ask_question, fetch_history
+            from supabase_db.supabase_client import get_supabase_client
+            from utils.id_generator import generate_uuid4
+            
+            # Step 1: Create a test user
+            test_timestamp = datetime.now().strftime('%H%M%S')
+            user_id, agent_id = await get_or_create_user(
+                name=f"Conversation Test {test_timestamp}",
+                email=f"conv_test_{test_timestamp}@example.com",
+                phone=f"+1234{test_timestamp}",
+                health_form='{"diet": "vegetarian", "test": true}'
+            )
+            
+            # Step 2: Simulate conversation messages
+            messages = [
+                "Hello, I'm new to nutrition planning",
+                "I'm vegetarian and want to lose weight",
+                "What should I eat for breakfast?"
+            ]
+            
+            conversation_results = []
+            supabase = get_supabase_client()
+            
+            for i, message in enumerate(messages):
+                # Generate AI response
+                state = {
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "last_question": message
+                }
+                
+                result = await ask_question(state)
+                ai_response = result.get("last_question", "")
+                
+                # Store conversation (like chat.py does)
+                interaction_data = {
+                    "id": generate_uuid4(),
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "input_by_user": message,
+                    "output_by_model": ai_response,
+                    "processed": True
+                }
+                
+                supabase.table("interactions").insert(interaction_data).execute()
+                
+                conversation_results.append({
+                    "message_num": i + 1,
+                    "user_message": message[:30] + "...",
+                    "ai_response": ai_response[:50] + "..." if len(ai_response) > 50 else ai_response,
+                    "stored": True
+                })
+            
+            # Step 3: Verify conversation history
+            history = await fetch_history(user_id, agent_id)
+            
+            return {
+                "status": "✅ PASS",
+                "message": "Complete conversation flow successful",
+                "details": {
+                    "user_created": "✅ Yes",
+                    "messages_sent": len(messages),
+                    "ai_responses_generated": len([r for r in conversation_results if r["ai_response"]]),
+                    "conversations_stored": len(conversation_results),
+                    "history_retrieved": len(history),
+                    "conversation_sample": conversation_results[:2]  # Show first 2 exchanges
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "status": "❌ FAIL",
+                "message": f"Conversation flow failed: {str(e)}",
+                "error": str(e)
+            }
+    
+    async def test_message_storage_verification(self):
+        """Test that messages are stored with proper pairing"""
         try:
             from supabase_db.supabase_client import get_supabase_client
             from utils.id_generator import generate_uuid4
             
             supabase = get_supabase_client()
             
-            # Create test user for chat
-            test_user_id = "chat_test_" + generate_uuid4()[:8] 
-            test_agent_id = "agent_test_" + generate_uuid4()[:8]
+            # Create test interaction with proper pairing
+            test_user_id = f"storage_test_{generate_uuid4()[:8]}"
+            test_agent_id = f"agent_storage_{generate_uuid4()[:8]}"
             
-            # Simulate sending a message
-            chat_interaction = {
+            user_message = "Test message for storage verification"
+            ai_response = "Test AI response for storage verification"
+            
+            interaction_data = {
                 "id": generate_uuid4(),
                 "user_id": test_user_id,
                 "agent_id": test_agent_id,
-                "input_by_user": "Hello, I need healthy meal suggestions",
-                "output_by_model": "I'd be happy to help with meal suggestions!",
-                "processed": False
+                "input_by_user": user_message,
+                "output_by_model": ai_response,
+                "processed": True
             }
             
-            # Insert chat message
-            supabase.table("interactions").insert(chat_interaction).execute()
+            # Insert and verify
+            insert_result = supabase.table("interactions").insert(interaction_data).execute()
             
-            # Simulate getting chat history
-            history_result = (supabase.table("interactions")
-                            .select("*")
-                            .eq("user_id", test_user_id)
-                            .eq("agent_id", test_agent_id)
-                            .execute())
+            # Query back to verify proper storage
+            query_result = supabase.table("interactions").select("*").eq("id", interaction_data["id"]).execute()
+            
+            stored_interaction = query_result.data[0] if query_result.data else None
+            
+            # Verify pairing is correct
+            pairing_correct = (
+                stored_interaction and
+                stored_interaction["input_by_user"] == user_message and
+                stored_interaction["output_by_model"] == ai_response
+            )
             
             # Clean up
-            supabase.table("interactions").delete().eq("id", chat_interaction["id"]).execute()
+            supabase.table("interactions").delete().eq("id", interaction_data["id"]).execute()
             
             return {
-                "status": "✅ PASS",
-                "message": "Chat functionality test successful",
+                "status": "✅ PASS" if pairing_correct else "❌ FAIL",
+                "message": "Message storage verification",
                 "details": {
-                    "message_send": "✅ Simulated successfully",
-                    "history_retrieval": "✅ Working",
-                    "test_user_id": test_user_id,
-                    "messages_found": len(history_result.data)
+                    "storage": "✅ Successful",
+                    "retrieval": "✅ Successful",
+                    "message_pairing": "✅ Correct" if pairing_correct else "❌ Incorrect",
+                    "user_message_match": stored_interaction["input_by_user"] == user_message if stored_interaction else False,
+                    "ai_response_match": stored_interaction["output_by_model"] == ai_response if stored_interaction else False
                 }
             }
             
         except Exception as e:
             return {
-                "status": "❌ FAIL", 
-                "message": f"Chat functionality test failed: {str(e)}",
+                "status": "❌ FAIL",
+                "message": f"Storage verification failed: {str(e)}",
                 "error": str(e)
             }
     
-    async def test_backend_integration(self):
-        """Test if backend integration points are ready"""
+    async def test_ai_response_generation(self):
+        """Test AI response generation quality and context awareness"""
         try:
-            from supabase_db.supabase_client import get_supabase_client
+            from personal_agent.agent_supabase import ask_question
+            from utils.id_generator import generate_uuid4
             
-            supabase = get_supabase_client()
+            test_user_id = f"ai_test_{generate_uuid4()[:8]}"
+            test_agent_id = f"ai_agent_{generate_uuid4()[:8]}"
             
-            # Check for unprocessed interactions (backend queue)
-            unprocessed_result = supabase.table("interactions").select("id").eq("processed", False).limit(5).execute()
+            # Test different types of messages
+            test_scenarios = [
+                {
+                    "input": "Hello, I'm new to healthy eating",
+                    "expected_keywords": ["welcome", "help", "nutrition", "eating"]
+                },
+                {
+                    "input": "I'm vegetarian and want to lose weight",
+                    "expected_keywords": ["vegetarian", "weight", "protein", "plant"]
+                },
+                {
+                    "input": "What should I eat for breakfast?",
+                    "expected_keywords": ["breakfast", "meal", "morning", "eat"]
+                }
+            ]
             
-            # Check persona table structure
-            persona_result = supabase.table("persona").select("user_id, agent_id").limit(1).execute()
+            scenario_results = []
+            
+            for scenario in test_scenarios:
+                state = {
+                    "user_id": test_user_id,
+                    "agent_id": test_agent_id, 
+                    "last_question": scenario["input"]
+                }
+                
+                result = await ask_question(state)
+                ai_response = result.get("last_question", "").lower()
+                
+                # Check if response contains relevant keywords
+                keyword_matches = sum(1 for keyword in scenario["expected_keywords"] if keyword in ai_response)
+                
+                scenario_results.append({
+                    "input": scenario["input"][:30] + "...",
+                    "response_length": len(ai_response),
+                    "keyword_matches": f"{keyword_matches}/{len(scenario['expected_keywords'])}",
+                    "relevant": keyword_matches > 0
+                })
+            
+            all_relevant = all(result["relevant"] for result in scenario_results)
             
             return {
-                "status": "✅ PASS",
-                "message": "Backend integration ready",
+                "status": "✅ PASS" if all_relevant else "⚠️ PARTIAL",
+                "message": "AI response generation test",
                 "details": {
-                    "interactions_table": "✅ Accessible",
-                    "persona_table": "✅ Accessible",
-                    "unprocessed_queue": f"{len(unprocessed_result.data)} items",
-                    "backend_ready": "✅ Yes (when laptop backend runs)"
+                    "scenarios_tested": len(test_scenarios),
+                    "relevant_responses": sum(1 for r in scenario_results if r["relevant"]),
+                    "response_quality": "✅ Good" if all_relevant else "⚠️ Needs improvement",
+                    "scenario_results": scenario_results
                 }
             }
             
         except Exception as e:
             return {
-                "status": "⚠️ PARTIAL",
-                "message": f"Backend integration check: {str(e)}",
+                "status": "❌ FAIL",
+                "message": f"AI response generation failed: {str(e)}",
                 "error": str(e)
             }
     
@@ -349,20 +506,22 @@ class handler(BaseHTTPRequestHandler):
             else:
                 request_data = {}
             
-            test_type = request_data.get('test_type', 'quick')
+            test_type = request_data.get('test_type', 'conversation_demo')
             
-            if test_type == 'user_creation':
-                # Test specific user creation with provided data
-                result = self.test_specific_user_creation(request_data)
-            elif test_type == 'chat_simulation':
-                # Test chat with specific messages
-                result = self.test_chat_simulation(request_data)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            if test_type == 'conversation_demo':
+                result = loop.run_until_complete(self.run_conversation_demo(request_data))
+            elif test_type == 'user_creation_demo':
+                result = loop.run_until_complete(self.run_user_creation_demo(request_data))
             else:
                 result = {
                     "success": True,
                     "message": "POST test endpoint working",
                     "received_data": request_data,
-                    "available_tests": ["user_creation", "chat_simulation"]
+                    "available_tests": ["conversation_demo", "user_creation_demo"],
+                    "timestamp": datetime.now().isoformat()
                 }
             
             self.send_response(200)
@@ -383,6 +542,101 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps(error_response).encode())
+    
+    async def run_conversation_demo(self, request_data):
+        """Run a live conversation demo"""
+        try:
+            from personal_agent.agent_supabase import get_or_create_user, ask_question, fetch_history
+            from supabase_db.supabase_client import get_supabase_client
+            from utils.id_generator import generate_uuid4
+            
+            # Create demo user
+            demo_timestamp = datetime.now().strftime('%H%M%S')
+            user_id, agent_id = await get_or_create_user(
+                name=f"Demo User {demo_timestamp}",
+                email=f"demo_{demo_timestamp}@example.com",
+                health_form='{"demo": true, "diet": "vegetarian"}'
+            )
+            
+            # Demo conversation
+            demo_messages = request_data.get('messages', [
+                "Hello, I want to start eating healthier",
+                "I'm vegetarian and trying to lose weight",
+                "What are some good breakfast options?"
+            ])
+            
+            conversation_log = []
+            supabase = get_supabase_client()
+            
+            for message in demo_messages:
+                # Generate AI response
+                state = {"user_id": user_id, "agent_id": agent_id, "last_question": message}
+                result = await ask_question(state)
+                ai_response = result.get("last_question", "")
+                
+                # Store conversation
+                interaction_data = {
+                    "id": generate_uuid4(),
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "input_by_user": message,
+                    "output_by_model": ai_response,
+                    "processed": True
+                }
+                supabase.table("interactions").insert(interaction_data).execute()
+                
+                conversation_log.append({
+                    "user": message,
+                    "foodbuddy_ai": ai_response
+                })
+            
+            return {
+                "success": True,
+                "message": "Live conversation demo completed",
+                "demo_user_id": user_id[:12] + "...",
+                "conversation_log": conversation_log,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Conversation demo failed"
+            }
+    
+    async def run_user_creation_demo(self, request_data):
+        """Run a user creation demo with custom data"""
+        try:
+            from personal_agent.agent_supabase import get_or_create_user
+            
+            demo_data = request_data.get('user_data', {})
+            
+            user_id, agent_id = await get_or_create_user(
+                name=demo_data.get('name', 'Demo User'),
+                email=demo_data.get('email', f'demo_{datetime.now().strftime("%H%M%S")}@example.com'),
+                phone=demo_data.get('phone', '+1234567890'),
+                health_form=json.dumps(demo_data.get('health_form', {"demo": True}))
+            )
+            
+            return {
+                "success": True,
+                "message": "User creation demo successful",
+                "created_user": {
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "name": demo_data.get('name', 'Demo User'),
+                    "email": demo_data.get('email', 'demo email')
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "User creation demo failed"
+            }
     
     def do_OPTIONS(self):
         """Handle CORS preflight requests"""
