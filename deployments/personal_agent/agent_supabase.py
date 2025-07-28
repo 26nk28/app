@@ -108,6 +108,7 @@ async def ask_question(state: HealthState) -> dict:
         for interaction in history
     )
 
+    print(f"\n📝 Conversation history:\n{mem_text}\n")
     llm = ChatGoogleGenerativeAI(
         api_key=GEMINI_API_KEY,
         model="gemini-2.5-flash-preview-05-20",
