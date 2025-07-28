@@ -58,11 +58,14 @@ class handler(BaseHTTPRequestHandler):
         
         print(f"💬 Received message from {user_id[:8]}...: {message}")
         
-        # Step 1: Generate AI response using ask_question
+        # STEP 1: Store user message FIRST so it's available in conversation history
+        user_interaction_id = await self.store_user_message_first(user_id, agent_id, message)
+        
+        # STEP 2: Generate AI response using ask_question (now it can see the new user message)
         state = {
             "user_id": user_id,
             "agent_id": agent_id,
-            "last_question": message  # Pass user message for context
+            "last_question": ""  # Empty - let it read from updated history
         }
         
         result = await ask_question(state)
@@ -71,41 +74,61 @@ class handler(BaseHTTPRequestHandler):
         
         print(f"🤖 AI response: {ai_response}")
         
-        # Step 2: Store conversation properly
-        await self.store_conversation_properly(user_id, agent_id, message, ai_response)
+        # STEP 3: Update the user's interaction with the AI response
+        await self.update_user_interaction_with_ai_response(user_interaction_id, ai_response)
         
         return {
             "success": True,
             "message": "Conversation stored correctly with proper message-response pairing",
             "ai_response": ai_response,
-            "interaction_id": self.last_interaction_id if hasattr(self, 'last_interaction_id') else None
+            "interaction_id": user_interaction_id
         }
     
-    async def store_conversation_properly(self, user_id, agent_id, user_message, ai_response):
+    async def store_user_message_first(self, user_id, agent_id, user_message):
         """
-        Store the conversation with correct user message → AI response pairing
-        WITHOUT modifying the original record_response function
+        Store the user's message FIRST so it's immediately available in conversation history
         """
         supabase = get_supabase_client()
         
         try:
-            # Store the complete conversation turn with correct pairing
+            # Store user message with placeholder AI response
             interaction_id = generate_uuid4()
             interaction_data = {
                 "id": interaction_id,
                 "user_id": user_id,
                 "agent_id": agent_id,
-                "input_by_user": user_message,  # Current user message
-                "output_by_model": ai_response,  # AI response to THIS message
-                "processed": False  # Mark as processed since we have both parts
+                "input_by_user": user_message,
+                "output_by_model": "Processing...",  # Placeholder
+                "processed": False  # Will update this when we get AI response
             }
             
             supabase.table("interactions").insert(interaction_data).execute()
-            self.last_interaction_id = interaction_id
-            print(f"💾 [Proper Storage] User: '{user_message[:50]}...' → AI: '{ai_response[:50]}...'")
+            print(f"💾 [Step 1] Stored user message: '{user_message[:50]}...'")
+            
+            return interaction_id
             
         except Exception as error:
-            print(f"💾 [Storage Error] {error}")
+            print(f"💾 [Storage Error Step 1] {error}")
+            raise error
+    
+    async def update_user_interaction_with_ai_response(self, interaction_id, ai_response):
+        """
+        Update the stored interaction with the actual AI response
+        """
+        supabase = get_supabase_client()
+        
+        try:
+            # Update the existing interaction with AI response
+            supabase.table("interactions").update({
+                "output_by_model": ai_response,
+                "processed": True
+            }).eq("id", interaction_id).execute()
+            
+            print(f"💾 [Step 2] Updated with AI response: '{ai_response[:50]}...'")
+            
+        except Exception as error:
+            print(f"💾 [Storage Error Step 2] {error}")
+            raise error
     
     async def handle_get_history(self, data):
         user_id = data.get('user_id')
