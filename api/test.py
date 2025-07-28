@@ -221,8 +221,8 @@ class handler(BaseHTTPRequestHandler):
             # Test: Insert interaction
             test_interaction = {
                 "id": generate_uuid4(),
-                "user_id": "test_user_new" + generate_uuid4()[:8],
-                "agent_id": "test_agent_new" + generate_uuid4()[:8],
+                "user_id": "test_user_" + generate_uuid4()[:8],
+                "agent_id": "test_agent_" + generate_uuid4()[:8],
                 "input_by_user": "Test message for API verification",
                 "output_by_model": "Test response from API test",
                 "processed": False
@@ -273,7 +273,7 @@ class handler(BaseHTTPRequestHandler):
                 "user_id": test_user_id,
                 "agent_id": test_agent_id,
                 "input_by_user": "Hello, I need healthy meal suggestions",
-                "output_by_model": "I'd be happy to help with meal suggestions! pLEASE wait",
+                "output_by_model": "I'd be happy to help with meal suggestions!",
                 "processed": False
             }
             

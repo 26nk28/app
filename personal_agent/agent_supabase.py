@@ -1,10 +1,10 @@
 import asyncio
 from pathlib import Path
 from typing import TypedDict
-import os
+
 from supabase_db.supabase_client import get_supabase_client
 from utils.id_generator import generate_uuid4
-# from utils.config import GEMINI_API_KEY
+from utils.config import GEMINI_API_KEY
 
 from langgraph.graph import StateGraph, START
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -18,7 +18,6 @@ from langchain.prompts.chat import (
 )
 
 # ─── User lookup/creation helper (converted to Supabase) ───────────────────
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") 
 
 async def get_or_create_user(name: str, email: str, phone: str = None, health_form: str = None):
     """
@@ -109,6 +108,7 @@ async def ask_question(state: HealthState) -> dict:
         for interaction in history
     )
 
+    print(f"\n📝 Conversation history:\n{mem_text}\n")
     llm = ChatGoogleGenerativeAI(
         api_key=GEMINI_API_KEY,
         model="gemini-2.5-flash-preview-05-20",
