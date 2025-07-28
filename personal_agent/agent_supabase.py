@@ -116,6 +116,7 @@ async def ask_question(state: HealthState) -> dict:
         model="gemini-2.5-flash-preview-05-20",
         temperature=0.7
     )
+    ###reupload
     conv = ConversationChain(
         llm=llm,
         memory=ConversationBufferWindowMemory(
